@@ -38,12 +38,14 @@ class LongTermMemory(tf.keras.layers.Layer):
         self.memory.assign(update)
 
     def recall(self, index):
-        return tf.expand_dims(tf.gather(self.memory, index), axis=0)
+        return tf.gather(self.memory, index)
 
     def match_context(self, context):
-        sim = tf.keras.losses.cosine_similarity(tf.expand_dims(context, 1), self.memory[tf.newaxis, ...], axis=-1)
+        context = tf.reshape(context, [tf.shape(context)[0], 1, self.embedding_dim])
+        memory = tf.reshape(self.memory, [1, self.memory_size, self.embedding_dim])
+        sim = tf.keras.losses.cosine_similarity(context, memory, axis=-1)
         best = tf.argmin(sim, axis=-1)
-        return self.recall(best[0])
+        return self.recall(best)
 
 
 class PositionalEncoding2D(tf.keras.layers.Layer):
@@ -61,7 +63,6 @@ class PositionalEncoding2D(tf.keras.layers.Layer):
         pos = tf.tile(pos, [b, 1, 1, 1])
         pos = self.dense(pos)
         return tf.concat([x, pos], axis=-1)
-
 
 class FractalEncoder(tf.keras.layers.Layer):
     def __init__(self, dim):
