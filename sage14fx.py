@@ -50,6 +50,7 @@ class ChoiceHypothesisModule(tf.keras.layers.Layer):
         chosen = tf.reduce_sum(stacked * weights, axis=1)  # (B, H, W, D)
         return chosen
 
+
 class Sage14FX(tf.keras.Model):
     def __init__(self, hidden_dim):
         super().__init__()
