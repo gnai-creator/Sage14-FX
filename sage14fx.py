@@ -1,7 +1,12 @@
 # === SAGE14-FX v2: Emotionally Mature Edition ===
 # EpisodicMemory now handles variable-length few-shot episodes.
 
+import os
+import json
+import numpy as np
 import tensorflow as tf
+from tensorflow.keras.utils import to_categorical
+import matplotlib.pyplot as plt
 
 class EpisodicMemory(tf.keras.layers.Layer):
     """Flexible memory that accumulates task-specific embeddings across time."""
@@ -46,6 +51,7 @@ class ChoiceHypothesisModule(tf.keras.layers.Layer):
 class Sage14FX(tf.keras.Model):
     def __init__(self, hidden_dim):
         super().__init__()
+        self.hidden_dim = hidden_dim
         self.encoder = tf.keras.layers.Conv2D(hidden_dim, (3, 3), padding='same', activation='relu')
         self.norm = tf.keras.layers.LayerNormalization()
         self.agent = tf.keras.layers.GRUCell(hidden_dim)
@@ -57,7 +63,7 @@ class Sage14FX(tf.keras.Model):
     def call(self, x_seq, y_seq=None, training=False):
         batch = tf.shape(x_seq)[0]
         T = tf.shape(x_seq)[1]
-        state = tf.zeros([batch, self.agent.units])
+        state = tf.zeros([batch, self.hidden_dim])
         self.memory.reset()
 
         for t in range(T):
@@ -65,7 +71,7 @@ class Sage14FX(tf.keras.Model):
             x = self.encoder(x)
             x = self.norm(x)
             x_flat = tf.reduce_mean(x, axis=[1, 2])
-            out, state = self.agent(x_flat, [state])
+            out, [state] = self.agent(x_flat, [state])
             self.memory.write(out)
 
         task_embed = state
