@@ -38,7 +38,7 @@ class LongTermMemory(tf.keras.layers.Layer):
         self.memory.assign(update)
 
     def recall(self, index):
-        return tf.gather(self.memory, index)
+        return tf.expand_dims(tf.gather(self.memory, index), axis=0)
 
     def match_context(self, context):
         sim = tf.keras.losses.cosine_similarity(tf.expand_dims(context, 1), self.memory[tf.newaxis, ...], axis=-1)
@@ -204,6 +204,7 @@ class Sage14FX(tf.keras.Model):
         memory_tensor = tf.transpose(self.memory.read_all(), [1, 0, 2])
         memory_context = self.attend_memory(memory_tensor, state)
         long_term_context = self.longterm.match_context(state)
+        long_term_context = tf.reshape(long_term_context, [batch, self.hidden_dim])
         full_context = tf.concat([state, memory_context, long_term_context], axis=-1)
         context = tf.tile(tf.reshape(full_context, [batch, 1, 1, -1]), [1, 20, 20, 1])
 
@@ -231,7 +232,7 @@ class Sage14FX(tf.keras.Model):
             self._gate = gate
             self._exploration = exploration
             self._alpha = alpha
-            self.longterm.store(0, tf.reduce_mean(state, axis=0))  # crude storage demo
+            self.longterm.store(0, tf.reduce_mean(state, axis=0))
             loss = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)(y_seq[:, -1], output_logits)
             self._loss_pain = loss * alpha
 
