@@ -70,12 +70,13 @@ class Sage14FX(tf.keras.Model):
         self._gate = None
         self._loss_pain = None
 
-        def call(self, x_seq, y_seq=None, training=False):
-            batch = tf.shape(x_seq)[0]
-            T = tf.shape(x_seq)[1]
-            state = tf.zeros([batch, self.hidden_dim])
-            self.memory.reset()
+    def call(self, x_seq, y_seq=None, training=False):
+        batch = tf.shape(x_seq)[0]
+        T = tf.shape(x_seq)[1]
+        state = tf.zeros([batch, self.hidden_dim])
+        self.memory.reset()
     
+        if training or T > 1:
             for t in range(T):
                 x = x_seq[:, t]
                 x = self.encoder(x)
@@ -83,31 +84,37 @@ class Sage14FX(tf.keras.Model):
                 x_flat = tf.reduce_mean(x, axis=[1, 2])
                 out, [state] = self.agent(x_flat, [state])
                 self.memory.write(out)
+        else:
+            # Inference case: only 1 shot
+            x = x_seq[:, 0]
+            x = self.encoder(x)
+            x = self.norm(x, training=False)
+            x_flat = tf.reduce_mean(x, axis=[1, 2])
+            out, [state] = self.agent(x_flat, [state])
+            self.memory.write(out)
+            self.memory.write(out)  # 🧠 Duplicate to simulate 2-shot context
     
-            if not training and T == 1:  # 👈 inference-only edge case fix
-                # duplicate the single embedding to simulate "2 shots"
-                self.memory.write(out)  # write again so memory has 2 entries
+        task_embed = state
+        memory_tensor = self.memory.read_all()
+        memory_tensor = tf.transpose(memory_tensor, [1, 0, 2])
+        memory_context = tf.reshape(memory_tensor, [batch, -1])
     
-            task_embed = state
-            memory_tensor = self.memory.read_all()
-            memory_tensor = tf.transpose(memory_tensor, [1, 0, 2])
-            memory_context = tf.reshape(memory_tensor, [batch, -1])
+        full_context = tf.concat([task_embed, memory_context], axis=-1)
+        print("🧪 full_context.shape (pre-tile):", full_context.shape)  # DEBUG
+        full_context = tf.reshape(full_context, [batch, 1, 1, -1])
+        full_context = tf.tile(full_context, [1, 20, 20, 1])
     
-            full_context = tf.concat([task_embed, memory_context], axis=-1)
-            print("🧪 full_context.shape (pre-tile):", full_context.shape)  # DEBUG
-            full_context = tf.reshape(full_context, [batch, 1, 1, -1])
-            full_context = tf.tile(full_context, [1, 20, 20, 1])
+        chosen_transform = self.chooser(full_context)
+        output_logits = self.decoder(chosen_transform)
     
-            chosen_transform = self.chooser(full_context)
-            output_logits = self.decoder(chosen_transform)
+        if y_seq is not None:
+            last_y = tf.one_hot(y_seq[:, -1], depth=10, dtype=tf.float32)
+            pain, gate = self.pain_system(output_logits, last_y)
+            self._pain = pain
+            self._gate = gate
+            loss_fn = tf.keras.losses.CategoricalCrossentropy(from_logits=True)
+            self._loss_pain = loss_fn(last_y, output_logits)
     
-            if y_seq is not None:
-                last_y = tf.one_hot(y_seq[:, -1], depth=10, dtype=tf.float32)
-                pain, gate = self.pain_system(output_logits, last_y)
-                self._pain = pain
-                self._gate = gate
-                loss_fn = tf.keras.losses.CategoricalCrossentropy(from_logits=True)
-                self._loss_pain = loss_fn(last_y, output_logits)
-    
-            return output_logits
+        return output_logits
+
 
