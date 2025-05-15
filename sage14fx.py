@@ -94,7 +94,7 @@ class Sage14FX(tf.keras.Model):
         ])
         self.norm = tf.keras.layers.LayerNormalization()
         self.pos_enc = PositionalEncoding2D(hidden_dim)
-        self.attn = SimpleAttention(hidden_dim)
+        self.attn = SimpleAttention(hidden_dim + 2)
         self.agent = tf.keras.layers.GRUCell(hidden_dim)
         self.memory = EpisodicMemory()
         self.pain_system = TaskPainSystem(hidden_dim)
