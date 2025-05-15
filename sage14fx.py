@@ -88,10 +88,12 @@ class SimpleAttention(tf.keras.layers.Layer):
 class Sage14FX(tf.keras.Model):
     def __init__(self, hidden_dim):
         super().__init__()
+        kernel_init = tf.keras.initializers.HeNormal()
+
         self.hidden_dim = hidden_dim
         self.encoder = tf.keras.Sequential([
-            tf.keras.layers.Conv2D(hidden_dim, (3, 3), padding='same', activation='relu'),
-            tf.keras.layers.Conv2D(hidden_dim, (3, 3), padding='same', activation='relu'),
+            tf.keras.layers.Conv2D(hidden_dim, (3, 3), padding='same', activation='relu', kernel_initializer=kernel_init),
+            tf.keras.layers.Conv2D(hidden_dim, (3, 3), padding='same', activation='relu', kernel_initializer=kernel_init),
         ])
         self.norm = tf.keras.layers.LayerNormalization()
         self.pos_enc = PositionalEncoding2D(hidden_dim)
@@ -101,8 +103,9 @@ class Sage14FX(tf.keras.Model):
         self.pain_system = TaskPainSystem(hidden_dim)
         self.chooser = ChoiceHypothesisModule(hidden_dim)
         self.decoder = tf.keras.Sequential([
-            tf.keras.layers.Conv2D(hidden_dim, (3, 3), padding='same', activation='relu'),
-            tf.keras.layers.Conv2D(10, (1, 1))
+            tf.keras.layers.Conv2D(hidden_dim, (3, 3), padding='same', activation='relu', kernel_initializer=kernel_init),
+            tf.keras.layers.BatchNormalization(),
+            tf.keras.layers.Conv2D(10, (1, 1), kernel_initializer=kernel_init)
         ])
         self._pain = None
         self._gate = None
@@ -145,8 +148,7 @@ class Sage14FX(tf.keras.Model):
 
         chosen_transform = self.chooser(full_context)
 
-        # === Skip Connection with last encoded input ===
-        last_input_encoded = self.encoder(x_seq[:, -1])  # (B, H, W, C)
+        last_input_encoded = self.encoder(x_seq[:, -1])
         merged = tf.concat([chosen_transform, last_input_encoded], axis=-1)
 
         output_logits = self.decoder(merged)
