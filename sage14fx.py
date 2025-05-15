@@ -85,7 +85,6 @@ class SimpleAttention(tf.keras.layers.Layer):
         out = v * attn
         return self.out(out)
 
-
 class Sage14FX(tf.keras.Model):
     def __init__(self, hidden_dim):
         super().__init__()
