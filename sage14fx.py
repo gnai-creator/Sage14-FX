@@ -55,7 +55,7 @@ class Sage14FX(tf.keras.Model):
         super().__init__()
         self.hidden_dim = hidden_dim
         self.encoder = tf.keras.layers.Conv2D(hidden_dim, (3, 3), padding='same', activation='relu')
-        self.norm = tf.keras.layers.LayerNormalization()
+        self.norm = tf.keras.layers.BatchNormalization()
         self.agent = tf.keras.layers.GRUCell(hidden_dim)
         self.memory = EpisodicMemory()
         self.pain_system = TaskPainSystem(hidden_dim)
@@ -81,7 +81,7 @@ class Sage14FX(tf.keras.Model):
 
         task_embed = state
         memory_tensor = self.memory.read_all()  # (T, B, D)
-        memory_context = tf.reshape(memory_tensor, [tf.shape(memory_tensor)[1], -1])  # (B, T*D)
+        memory_context = tf.reshape(memory_tensor, [tf.shape(memory_tensor))  # (B, T*D)
         full_context = tf.concat([task_embed, memory_context], axis=-1)  # (B, D + T*D)
         full_context = tf.reshape(full_context, [batch, 1, 1, -1])
         full_context = tf.tile(full_context, [1, 20, 20, 1])
