@@ -111,7 +111,6 @@ class Sage14FX(tf.keras.Model):
         self._gate = None
         self._loss_pain = None
 
-    @tf.function
     def call(self, x_seq, y_seq=None, training=False):
         batch = tf.shape(x_seq)[0]
         T = tf.shape(x_seq)[1]
