@@ -45,7 +45,7 @@ class FractalEncoder(tf.keras.layers.Layer):
         self.branch3 = tf.keras.layers.Conv2D(dim // 2, kernel_size=3, padding='same', activation='relu')
         self.branch5 = tf.keras.layers.Conv2D(dim // 2, kernel_size=5, padding='same', activation='relu')
         self.merge = tf.keras.layers.Conv2D(dim, kernel_size=1, padding='same', activation='relu')
-        self.residual = tf.keras.layers.Conv2D(dim, kernel_size=1, padding='same')  # For identity path
+        self.residual = tf.keras.layers.Conv2D(dim, kernel_size=1, padding='same')
 
     def call(self, x):
         b3 = self.branch3(x)
@@ -54,7 +54,6 @@ class FractalEncoder(tf.keras.layers.Layer):
         out = self.merge(merged)
         skip = self.residual(x)
         return tf.nn.relu(out + skip)
-
 
 
 class FractalBlock(tf.keras.layers.Layer):
@@ -69,7 +68,6 @@ class FractalBlock(tf.keras.layers.Layer):
         out = self.bn(out)
         skip = self.skip(x)
         return tf.nn.relu(out + skip)
-
 
 
 class MultiHeadAttentionWrapper(tf.keras.layers.Layer):
@@ -95,7 +93,7 @@ class ChoiceHypothesisModule(tf.keras.layers.Layer):
         weights = self.selector(tf.reduce_mean(x, axis=[1, 2]))
 
         if hard:
-            idx = tf.argmax(weights, axis=-1)  # [B]
+            idx = tf.argmax(weights, axis=-1)
             one_hot = tf.one_hot(idx, depth=4, dtype=tf.float32)[:, :, tf.newaxis, tf.newaxis, tf.newaxis]
             return tf.reduce_sum(stacked * one_hot, axis=1)
         else:
@@ -113,11 +111,10 @@ class TaskPainSystem(tf.keras.layers.Layer):
         diff = tf.square(pred - expected)
         raw_pain = tf.reduce_mean(self.sensitivity * diff)
         exploration_gate = tf.clip_by_value(tf.nn.sigmoid((raw_pain - 2.0) * 0.5), 0.0, 1.0)
-        adjusted_pain = raw_pain * (1.0 - exploration_gate)  # Fury mode: high exploration = less perceived pain
+        adjusted_pain = raw_pain * (1.0 - exploration_gate)
         gate = tf.sigmoid((adjusted_pain - self.threshold) * 10.0)
-
         tf.print("Pain:", raw_pain, "Fury_Pain:", adjusted_pain, "Gate:", gate, "Exploration Gate:", exploration_gate)
-        return pain, gate
+        return adjusted_pain, gate, exploration_gate
 
 
 class AttentionOverMemory(tf.keras.layers.Layer):
@@ -128,7 +125,7 @@ class AttentionOverMemory(tf.keras.layers.Layer):
         self.value_proj = tf.keras.layers.Dense(dim)
 
     def call(self, memory, query):
-        q = self.query_proj(query)[:, tf.newaxis, :]  # [B, 1, D]
+        q = self.query_proj(query)[:, tf.newaxis, :]
         k = self.key_proj(memory)
         v = self.value_proj(memory)
         attn_weights = tf.nn.softmax(tf.reduce_sum(q * k, axis=-1, keepdims=True), axis=1)
@@ -162,7 +159,6 @@ class Sage14FX(tf.keras.Model):
         ])
         self.gate_scale = tf.keras.layers.Dense(self.hidden_dim, activation='sigmoid')
 
-
     def call(self, x_seq, y_seq=None, training=False):
         batch = tf.shape(x_seq)[0]
         T = tf.shape(x_seq)[1]
@@ -185,20 +181,20 @@ class Sage14FX(tf.keras.Model):
         chosen_transform = self.chooser(attended, hard=self.use_hard_choice)
 
         last_input_encoded = self.encoder(x_seq[:, -1])
-        # Calcular o gate por canal com base no contexto de memória
         context_features = tf.concat([state, memory_context], axis=-1)
         channel_gate = self.gate_scale(context_features)
         channel_gate = tf.reshape(channel_gate, [batch, 1, 1, self.hidden_dim])
         channel_gate = tf.clip_by_value(channel_gate, 0.0, 1.0)
         blended = channel_gate * chosen_transform + (1 - channel_gate) * last_input_encoded
-        merged = blended  # ou concat com outro tensor, se quiser
+        merged = blended
         output_logits = self.decoder(merged)
 
         if y_seq is not None:
             expected = tf.one_hot(y_seq[:, -1], depth=10, dtype=tf.float32)
-            pain, gate = self.pain_system(output_logits, expected)
+            pain, gate, exploration = self.pain_system(output_logits, expected)
             self._pain = pain
             self._gate = gate
+            self._exploration = exploration
             self._loss_pain = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)(y_seq[:, -1], output_logits)
 
         return output_logits
