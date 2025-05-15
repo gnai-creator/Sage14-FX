@@ -27,7 +27,7 @@ class TaskPainSystem(tf.keras.layers.Layer):
     def __init__(self, dim):
         super().__init__()
         self.threshold = tf.Variable(0.1, trainable=True)
-        self.sensitivity = tf.Variable(tf.ones([1, dim]), trainable=True)
+        self.sensitivity = tf.Variable(tf.ones([1, 1, 1, 10]), trainable=True)
 
     def call(self, pred, expected):
         diff = tf.square(pred - expected)
