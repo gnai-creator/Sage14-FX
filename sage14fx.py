@@ -114,7 +114,7 @@ class TaskPainSystem(tf.keras.layers.Layer):
         exploration_gate = tf.clip_by_value(tf.nn.sigmoid((raw_pain - 2.0) * 0.5), 0.0, 1.0)
         adjusted_pain = raw_pain * (1.0 - exploration_gate)
         gate = tf.sigmoid((adjusted_pain - self.threshold) * 10.0)
-        exploration_exp = tf.reshape(tf.expand_dims(exploration_gate, -1), (-1, 1))
+        exploration_exp = tf.reshape(exploration_gate, [1, 1])
         alpha = self.alpha_layer(exploration_exp)
         tf.print("Pain:", raw_pain, "Fury_Pain:", adjusted_pain, "Gate:", gate, "Exploration Gate:", exploration_gate, "Alpha:", alpha)
         return adjusted_pain, gate, exploration_gate, alpha
