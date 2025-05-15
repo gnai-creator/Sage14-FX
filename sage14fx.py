@@ -79,9 +79,12 @@ class SimpleAttention(tf.keras.layers.Layer):
         q = self.query(x)
         k = self.key(x)
         v = self.value(x)
-        attn = tf.nn.softmax(tf.reduce_sum(q * k, axis=-1, keepdims=True), axis=[1, 2])
-        out = tf.reduce_sum(v * attn, axis=-1, keepdims=True)
+        attn_logits = tf.reduce_sum(q * k, axis=-1, keepdims=True)  # (B, H, W, 1)
+        attn = tf.nn.softmax(tf.reshape(attn_logits, [tf.shape(x)[0], -1]), axis=-1)
+        attn = tf.reshape(attn, tf.shape(attn_logits))  # (B, H, W, 1)
+        out = v * attn
         return self.out(out)
+
 
 class Sage14FX(tf.keras.Model):
     def __init__(self, hidden_dim):
