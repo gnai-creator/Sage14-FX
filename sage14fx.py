@@ -79,9 +79,9 @@ class SimpleAttention(tf.keras.layers.Layer):
         q = self.query(x)
         k = self.key(x)
         v = self.value(x)
-        attn_logits = tf.reduce_sum(q * k, axis=-1, keepdims=True)  # (B, H, W, 1)
+        attn_logits = tf.reduce_sum(q * k, axis=-1, keepdims=True)
         attn = tf.nn.softmax(tf.reshape(attn_logits, [tf.shape(x)[0], -1]), axis=-1)
-        attn = tf.reshape(attn, tf.shape(attn_logits))  # (B, H, W, 1)
+        attn = tf.reshape(attn, tf.shape(attn_logits))
         out = v * attn
         return self.out(out)
 
@@ -144,7 +144,12 @@ class Sage14FX(tf.keras.Model):
         full_context = self.attn(full_context)
 
         chosen_transform = self.chooser(full_context)
-        output_logits = self.decoder(chosen_transform)
+
+        # === Skip Connection with last encoded input ===
+        last_input_encoded = self.encoder(x_seq[:, -1])  # (B, H, W, C)
+        merged = tf.concat([chosen_transform, last_input_encoded], axis=-1)
+
+        output_logits = self.decoder(merged)
 
         if y_seq is not None:
             expected = tf.one_hot(y_seq[:, -1], depth=10, dtype=tf.float32)
