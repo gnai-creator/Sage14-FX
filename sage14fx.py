@@ -75,8 +75,8 @@ class Sage14FX(tf.keras.Model):
             self.memory.write(out)
 
         task_embed = state
-        memory_context = tf.reduce_mean(self.memory.read_all(), axis=0, keepdims=False)
-        memory_context = tf.tile(memory_context[tf.newaxis, :], [batch, 1])
+        memory_context = tf.reduce_mean(self.memory.read_all(), axis=0)
+        memory_context = tf.broadcast_to(memory_context, [batch, self.hidden_dim])
         full_context = tf.concat([task_embed, memory_context], axis=-1)
         full_context = tf.reshape(full_context, [batch, 1, 1, -1])
         full_context = tf.tile(full_context, [1, 20, 20, 1])
