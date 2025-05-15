@@ -1,5 +1,4 @@
-# === SAGE14-FX v3.0: Emotionally Flexible Edition ===
-# EpisodicMemory handles variable shots, dynamic channels respected.
+# === SAGE14-FX v4.0: Fractal Curious Edition ===
 
 import tensorflow as tf
 
@@ -22,17 +21,43 @@ class EpisodicMemory(tf.keras.layers.Layer):
             return tf.zeros((1, 1, 1))
         return self.buffer
 
-class TaskPainSystem(tf.keras.layers.Layer):
+class PositionalEncoding2D(tf.keras.layers.Layer):
+    def __init__(self, channels):
+        super().__init__()
+        self.dense = tf.keras.layers.Dense(channels, activation='tanh')
+
+    def call(self, x):
+        b, h, w = tf.shape(x)[0], tf.shape(x)[1], tf.shape(x)[2]
+        y_pos = tf.linspace(-1.0, 1.0, tf.cast(h, tf.int32))
+        x_pos = tf.linspace(-1.0, 1.0, tf.cast(w, tf.int32))
+        yy, xx = tf.meshgrid(y_pos, x_pos, indexing='ij')
+        pos = tf.stack([yy, xx], axis=-1)
+        pos = tf.expand_dims(pos, 0)
+        pos = tf.tile(pos, [b, 1, 1, 1])
+        pos = self.dense(pos)
+        return tf.concat([x, pos], axis=-1)
+
+class FractalEncoder(tf.keras.layers.Layer):
     def __init__(self, dim):
         super().__init__()
-        self.threshold = tf.Variable(0.1, trainable=True)
-        self.sensitivity = tf.Variable(tf.ones([1, 1, 1, 10]), trainable=True)
+        self.conv3 = tf.keras.layers.Conv2D(dim, 3, padding='same', activation='relu')
+        self.conv5 = tf.keras.layers.Conv2D(dim, 5, padding='same', activation='relu')
+        self.conv7 = tf.keras.layers.Conv2D(dim, 7, padding='same', activation='relu')
+        self.merge = tf.keras.layers.Conv2D(dim, 1, padding='same', activation='relu')
 
-    def call(self, pred, expected):
-        diff = tf.square(pred - expected)
-        pain = tf.reduce_mean(self.sensitivity * diff)
-        gate = tf.sigmoid((pain - self.threshold) * 10.0)
-        return pain, gate
+    def call(self, x):
+        c3 = self.conv3(x)
+        c5 = self.conv5(x)
+        c7 = self.conv7(x)
+        return self.merge(c3 + c5 + c7)
+
+class MultiHeadAttentionWrapper(tf.keras.layers.Layer):
+    def __init__(self, dim, heads=8):
+        super().__init__()
+        self.attn = tf.keras.layers.MultiHeadAttention(num_heads=heads, key_dim=dim // heads)
+
+    def call(self, x):
+        return self.attn(query=x, value=x, key=x)
 
 class ChoiceHypothesisModule(tf.keras.layers.Layer):
     def __init__(self, dim):
@@ -47,60 +72,40 @@ class ChoiceHypothesisModule(tf.keras.layers.Layer):
         stacked = tf.stack(candidates, axis=1)
         weights = self.selector(tf.reduce_mean(x, axis=[1, 2]))
         weights = tf.reshape(weights, [-1, 4, 1, 1, 1])
-        chosen = tf.reduce_sum(stacked * weights, axis=1)
-        return chosen
+        return tf.reduce_sum(stacked * weights, axis=1)
 
-class PositionalEncoding2D(tf.keras.layers.Layer):
-    def __init__(self, channels):
+class TaskPainSystem(tf.keras.layers.Layer):
+    def __init__(self, dim):
         super().__init__()
-        self.channels = channels
-        self.dense = tf.keras.layers.Dense(channels, activation='tanh')
+        self.threshold = tf.Variable(0.1, trainable=True)
+        self.sensitivity = tf.Variable(tf.ones([1, 1, 1, 10]), trainable=True)
 
-    def call(self, x):
-        b, h, w = tf.shape(x)[0], tf.shape(x)[1], tf.shape(x)[2]
-        y_pos = tf.linspace(-1.0, 1.0, tf.cast(h, tf.int32))
-        x_pos = tf.linspace(-1.0, 1.0, tf.cast(w, tf.int32))
-        yy, xx = tf.meshgrid(y_pos, x_pos, indexing='ij')
-        pos = tf.stack([yy, xx], axis=-1)
-        pos = tf.expand_dims(pos, 0)
-        pos = tf.tile(pos, [b, 1, 1, 1])
-        pos = self.dense(pos)
-        return tf.concat([x, pos], axis=-1)
-
-class MultiHeadAttentionWrapper(tf.keras.layers.Layer):
-    def __init__(self, dim, heads=8):
-        super().__init__()
-        self.attn = tf.keras.layers.MultiHeadAttention(num_heads=heads, key_dim=dim // heads)
-
-    def call(self, x):
-        return self.attn(query=x, value=x, key=x)
-
+    def call(self, pred, expected):
+        diff = tf.square(pred - expected)
+        pain = tf.reduce_mean(self.sensitivity * diff)
+        gate = tf.sigmoid((pain - self.threshold) * 10.0)
+        return pain, gate
 
 class Sage14FX(tf.keras.Model):
     def __init__(self, hidden_dim):
         super().__init__()
-        kernel_init = tf.keras.initializers.HeNormal()
-
         self.hidden_dim = hidden_dim
         self.encoder = tf.keras.Sequential([
-            tf.keras.layers.Conv2D(hidden_dim, (3, 3), padding='same', activation='relu', kernel_initializer=kernel_init),
-            tf.keras.layers.Conv2D(hidden_dim, (3, 3), padding='same', activation='relu', kernel_initializer=kernel_init),
+            FractalEncoder(hidden_dim),
+            tf.keras.layers.Conv2D(hidden_dim, 3, padding='same', activation='relu'),
         ])
         self.norm = tf.keras.layers.LayerNormalization()
-        self.pos_enc = PositionalEncoding2D(2)  # Now only adds 2D position info
+        self.pos_enc = PositionalEncoding2D(2)
         self.attn = MultiHeadAttentionWrapper(hidden_dim, heads=8)
         self.agent = tf.keras.layers.GRUCell(hidden_dim)
         self.memory = EpisodicMemory()
-        self.pain_system = TaskPainSystem(hidden_dim)
         self.chooser = ChoiceHypothesisModule(hidden_dim)
+        self.pain_system = TaskPainSystem(hidden_dim)
         self.decoder = tf.keras.Sequential([
-            tf.keras.layers.Conv2D(hidden_dim, (3, 3), padding='same', activation='relu', kernel_initializer=kernel_init),
+            tf.keras.layers.Conv2D(hidden_dim, 3, padding='same', activation='relu'),
             tf.keras.layers.BatchNormalization(),
-            tf.keras.layers.Conv2D(10, (1, 1), kernel_initializer=kernel_init)
+            tf.keras.layers.Conv2D(10, 1)
         ])
-        self._pain = None
-        self._gate = None
-        self._loss_pain = None
 
     def call(self, x_seq, y_seq=None, training=False):
         batch = tf.shape(x_seq)[0]
@@ -108,36 +113,20 @@ class Sage14FX(tf.keras.Model):
         state = tf.zeros([batch, self.hidden_dim])
         self.memory.reset()
 
-        if training or T > 1:
-            for t in range(T):
-                x = x_seq[:, t]
-                x = self.encoder(x)
-                x = self.norm(x)
-                x_flat = tf.reduce_mean(x, axis=[1, 2])
-                out, [state] = self.agent(x_flat, [state])
-                self.memory.write(out)
-        else:
-            x = x_seq[:, 0]
-            x = self.encoder(x)
-            x = self.norm(x)
+        for t in range(T):
+            x = self.norm(self.encoder(x_seq[:, t]))
             x_flat = tf.reduce_mean(x, axis=[1, 2])
             out, [state] = self.agent(x_flat, [state])
             self.memory.write(out)
-            self.memory.write(out)
 
         task_embed = state
-        memory_tensor = self.memory.read_all()
-        memory_tensor = tf.transpose(memory_tensor, [1, 0, 2])
+        memory_tensor = tf.transpose(self.memory.read_all(), [1, 0, 2])
         memory_context = tf.reshape(memory_tensor, [batch, -1])
-
         context = tf.concat([task_embed, memory_context], axis=-1)
-        context = tf.reshape(context, [batch, 1, 1, -1])
-        context = tf.tile(context, [1, 20, 20, 1])
+        context = tf.tile(tf.reshape(context, [batch, 1, 1, -1]), [1, 20, 20, 1])
 
-        context_with_pos = self.pos_enc(context)
-        projected_input = tf.keras.layers.Conv2D(self.hidden_dim, 1)(context_with_pos)
+        projected_input = tf.keras.layers.Conv2D(self.hidden_dim, 1)(self.pos_enc(context))
         attended = self.attn(projected_input)
-
         chosen_transform = self.chooser(attended)
         last_input_encoded = self.encoder(x_seq[:, -1])
         merged = tf.concat([chosen_transform, last_input_encoded], axis=-1)
@@ -148,7 +137,6 @@ class Sage14FX(tf.keras.Model):
             pain, gate = self.pain_system(output_logits, expected)
             self._pain = pain
             self._gate = gate
-            loss_fn = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
-            self._loss_pain = loss_fn(y_seq[:, -1], output_logits)
+            self._loss_pain = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)(y_seq[:, -1], output_logits)
 
         return output_logits
