@@ -1,4 +1,4 @@
-# === SAGE14-FX v4.4: Alpha Barbarian Mage ===
+# === SAGE14-FX v4.5: Alpha Barbarian Mage ===
 
 import tensorflow as tf
 
