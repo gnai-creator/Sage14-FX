@@ -6,21 +6,18 @@ import tensorflow as tf
 class EpisodicMemory(tf.keras.layers.Layer):
     def __init__(self):
         super().__init__()
-        self.buffer = None
+        self.buffer = []
 
     def reset(self):
-        self.buffer = None
+        self.buffer = []
 
     def write(self, embedding):
-        if self.buffer is None:
-            self.buffer = embedding[tf.newaxis, ...]
-        else:
-            self.buffer = tf.concat([self.buffer, embedding[tf.newaxis, ...]], axis=0)
+        self.buffer.append(embedding)
 
     def read_all(self):
-        if self.buffer is None:
+        if not self.buffer:
             return tf.zeros((1, 1, 1))
-        return self.buffer
+        return tf.stack(self.buffer, axis=0)
 
 class TaskPainSystem(tf.keras.layers.Layer):
     def __init__(self, dim):
@@ -104,7 +101,7 @@ class Sage14FX(tf.keras.Model):
         self.chooser = ChoiceHypothesisModule(hidden_dim)
         self.decoder = tf.keras.Sequential([
             tf.keras.layers.Conv2D(hidden_dim, (3, 3), padding='same', activation='relu', kernel_initializer=kernel_init),
-            tf.keras.layers.BatchNormalization(),
+            tf.keras.layers.LayerNormalization(),
             tf.keras.layers.Conv2D(10, (1, 1), kernel_initializer=kernel_init)
         ])
         self._pain = None
@@ -117,21 +114,12 @@ class Sage14FX(tf.keras.Model):
         state = tf.zeros([batch, self.hidden_dim])
         self.memory.reset()
 
-        if training or T > 1:
-            for t in range(T):
-                x = x_seq[:, t]
-                x = self.encoder(x)
-                x = self.norm(x)
-                x_flat = tf.reduce_mean(x, axis=[1, 2])
-                out, [state] = self.agent(x_flat, [state])
-                self.memory.write(out)
-        else:
-            x = x_seq[:, 0]
+        for t in range(T):
+            x = x_seq[:, t]
             x = self.encoder(x)
             x = self.norm(x)
             x_flat = tf.reduce_mean(x, axis=[1, 2])
             out, [state] = self.agent(x_flat, [state])
-            self.memory.write(out)
             self.memory.write(out)
 
         task_embed = state
@@ -148,10 +136,7 @@ class Sage14FX(tf.keras.Model):
 
         chosen_transform = self.chooser(full_context)
 
-        last_input_encoded = self.encoder(x_seq[:, -1])
-        merged = tf.concat([chosen_transform, last_input_encoded], axis=-1)
-
-        output_logits = self.decoder(merged)
+        output_logits = self.decoder(chosen_transform)
 
         if y_seq is not None:
             expected = tf.one_hot(y_seq[:, -1], depth=10, dtype=tf.float32)
