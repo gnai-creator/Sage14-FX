@@ -37,8 +37,8 @@ class TaskPainSystem(tf.keras.layers.Layer):
 class ChoiceHypothesisModule(tf.keras.layers.Layer):
     def __init__(self, dim):
         super().__init__()
-        self.hypotheses = [tf.keras.layers.Dense(dim, activation='relu') for _ in range(4)]
-        self.input_proj = tf.keras.layers.Dense(dim, activation='relu')
+        self.hypotheses = [tf.keras.layers.Conv2D(dim, kernel_size=1, activation='relu') for _ in range(4)]
+        self.input_proj = tf.keras.layers.Conv2D(dim, kernel_size=1, activation='relu')
         self.selector = tf.keras.layers.Dense(4, activation='softmax')
 
     def call(self, x):
