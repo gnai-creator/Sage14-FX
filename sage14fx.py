@@ -1,4 +1,4 @@
-# === SAGE14-FX v4.0: Fractal Curious Edition ===
+# === SAGE14-FX v4.1: Fractal Curious Edition ===
 
 import tensorflow as tf
 
@@ -51,6 +51,21 @@ class FractalEncoder(tf.keras.layers.Layer):
         c7 = self.conv7(x)
         return self.merge(c3 + c5 + c7)
 
+class FractalBlock(tf.keras.layers.Layer):
+    def __init__(self, dim):
+        super().__init__()
+        self.conv1 = tf.keras.layers.Conv2D(dim, kernel_size=1, padding='same', activation='relu')
+        self.conv3 = tf.keras.layers.Conv2D(dim, kernel_size=3, padding='same', activation='relu')
+        self.conv5 = tf.keras.layers.Conv2D(dim, kernel_size=5, padding='same', activation='relu')
+        self.project = tf.keras.layers.Conv2D(dim, kernel_size=1, padding='same')
+
+    def call(self, x):
+        out1 = self.conv1(x)
+        out3 = self.conv3(x)
+        out5 = self.conv5(x)
+        concat = tf.concat([out1, out3, out5], axis=-1)
+        return self.project(concat)
+
 class MultiHeadAttentionWrapper(tf.keras.layers.Layer):
     def __init__(self, dim, heads=8):
         super().__init__()
@@ -92,7 +107,8 @@ class Sage14FX(tf.keras.Model):
         self.hidden_dim = hidden_dim
         self.encoder = tf.keras.Sequential([
             FractalEncoder(hidden_dim),
-            tf.keras.layers.Conv2D(hidden_dim, 3, padding='same', activation='relu'),
+            FractalBlock(hidden_dim),
+            tf.keras.layers.Conv2D(hidden_dim, 3, padding='same', activation='relu')
         ])
         self.norm = tf.keras.layers.LayerNormalization()
         self.pos_enc = PositionalEncoding2D(2)
