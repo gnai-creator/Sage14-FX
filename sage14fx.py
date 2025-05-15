@@ -12,6 +12,7 @@ class EpisodicMemory(tf.keras.layers.Layer):
         self.buffer = None
 
     def write(self, embedding):
+        print("📦 EpisodicMemory.write() — embedding shape:", embedding.shape)
         if self.buffer is None:
             self.buffer = embedding[tf.newaxis, ...]  # (1, B, D)
         else:
@@ -19,8 +20,11 @@ class EpisodicMemory(tf.keras.layers.Layer):
 
     def read_all(self):
         if self.buffer is None:
+            print("⚠️ EpisodicMemory.read_all(): buffer is empty")
             return tf.zeros((1, 1, 1))
+        print("🧠 EpisodicMemory.read_all() — buffer shape:", self.buffer.shape)
         return self.buffer  # (T, B, D)
+
 
 class TaskPainSystem(tf.keras.layers.Layer):
     def __init__(self, dim):
