@@ -118,7 +118,7 @@ class Sage14FX(tf.keras.Model):
         self.memory.reset()
 
         if training or T > 1:
-            for t in tf.range(T):
+            for t in range(T):
                 x = x_seq[:, t]
                 x = self.encoder(x)
                 x = self.norm(x)
