@@ -1,12 +1,7 @@
 # === SAGE14-FX v2.1: Emotionally Stable Edition ===
 # EpisodicMemory improved for batch dimension.
 
-import os
-import json
-import numpy as np
 import tensorflow as tf
-from tensorflow.keras.utils import to_categorical
-import matplotlib.pyplot as plt
 
 class EpisodicMemory(tf.keras.layers.Layer):
     """Flexible memory that accumulates task-specific embeddings across time."""
@@ -92,7 +87,7 @@ class Sage14FX(tf.keras.Model):
         if y_seq is not None:
             last_y = tf.one_hot(y_seq[:, -1], depth=10, dtype=tf.float32)  # (B, 20, 20, 10)
             pain, gate = self.pain_system(output_logits, last_y)
-            self.add_metric(pain, name="task_pain")
-            self.add_metric(gate, name="adaptation_gate")
+            self._pain = pain  # Replace add_metric with attribute
+            self._gate = gate
 
         return output_logits
