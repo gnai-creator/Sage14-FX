@@ -38,9 +38,11 @@ class ChoiceHypothesisModule(tf.keras.layers.Layer):
     def __init__(self, dim):
         super().__init__()
         self.hypotheses = [tf.keras.layers.Dense(dim, activation='relu') for _ in range(4)]
+        self.input_proj = tf.keras.layers.Dense(dim, activation='relu')
         self.selector = tf.keras.layers.Dense(4, activation='softmax')
 
     def call(self, x):
+        x = self.input_proj(x)
         candidates = [h(x) for h in self.hypotheses]
         stacked = tf.stack(candidates, axis=1)
         weights = self.selector(tf.reduce_mean(x, axis=[1, 2]))
