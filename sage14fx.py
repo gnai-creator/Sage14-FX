@@ -1,4 +1,4 @@
-# === SAGE14-FX v4.3: Pain-Aware Curious Hydra ===
+# === SAGE14-FX v4.4: Alpha Barbarian Mage ===
 
 import tensorflow as tf
 
@@ -106,6 +106,7 @@ class TaskPainSystem(tf.keras.layers.Layer):
         super().__init__()
         self.threshold = tf.Variable(0.1, trainable=True)
         self.sensitivity = tf.Variable(tf.ones([1, 1, 1, 10]), trainable=True)
+        self.alpha_layer = tf.keras.layers.Dense(1, activation='sigmoid')
 
     def call(self, pred, expected):
         diff = tf.square(pred - expected)
@@ -113,8 +114,9 @@ class TaskPainSystem(tf.keras.layers.Layer):
         exploration_gate = tf.clip_by_value(tf.nn.sigmoid((raw_pain - 2.0) * 0.5), 0.0, 1.0)
         adjusted_pain = raw_pain * (1.0 - exploration_gate)
         gate = tf.sigmoid((adjusted_pain - self.threshold) * 10.0)
-        tf.print("Pain:", raw_pain, "Fury_Pain:", adjusted_pain, "Gate:", gate, "Exploration Gate:", exploration_gate)
-        return adjusted_pain, gate, exploration_gate
+        alpha = self.alpha_layer(tf.expand_dims(exploration_gate, 0))  # Alpha from exploration
+        tf.print("Pain:", raw_pain, "Fury_Pain:", adjusted_pain, "Gate:", gate, "Exploration Gate:", exploration_gate, "Alpha:", alpha)
+        return adjusted_pain, gate, exploration_gate, alpha
 
 
 class AttentionOverMemory(tf.keras.layers.Layer):
@@ -185,16 +187,18 @@ class Sage14FX(tf.keras.Model):
         channel_gate = self.gate_scale(context_features)
         channel_gate = tf.reshape(channel_gate, [batch, 1, 1, self.hidden_dim])
         channel_gate = tf.clip_by_value(channel_gate, 0.0, 1.0)
+
         blended = channel_gate * chosen_transform + (1 - channel_gate) * last_input_encoded
         merged = blended
         output_logits = self.decoder(merged)
 
         if y_seq is not None:
             expected = tf.one_hot(y_seq[:, -1], depth=10, dtype=tf.float32)
-            pain, gate, exploration = self.pain_system(output_logits, expected)
+            pain, gate, exploration, alpha = self.pain_system(output_logits, expected)
             self._pain = pain
             self._gate = gate
             self._exploration = exploration
+            self._alpha = alpha
             self._loss_pain = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)(y_seq[:, -1], output_logits)
 
         return output_logits
