@@ -1,4 +1,4 @@
-# === SAGE14-FX v4.6: Alpha Barbarian Mage — Now Actually Uses Alpha ===
+# === SAGE14-FX v4.7: Alpha Barbarian Mage — Now With Early Channel Alignment and Fury Memory ===
 
 import tensorflow as tf
 
@@ -141,6 +141,7 @@ class Sage14FX(tf.keras.Model):
         super().__init__()
         self.hidden_dim = hidden_dim
         self.use_hard_choice = use_hard_choice
+        self.early_proj = tf.keras.layers.Conv2D(hidden_dim, 1, activation='relu')
         self.encoder = tf.keras.Sequential([
             FractalEncoder(hidden_dim),
             FractalBlock(hidden_dim),
@@ -169,7 +170,8 @@ class Sage14FX(tf.keras.Model):
         self.memory.reset()
 
         for t in range(T):
-            x = self.norm(self.encoder(x_seq[:, t]))
+            early = self.early_proj(x_seq[:, t])
+            x = self.norm(self.encoder(early))
             x_flat = tf.reduce_mean(x, axis=[1, 2])
             out, [state] = self.agent(x_flat, [state])
             self.memory.write(out)
@@ -183,13 +185,15 @@ class Sage14FX(tf.keras.Model):
         attended = self.attn(projected_input)
         chosen_transform = self.chooser(attended, hard=self.use_hard_choice)
 
-        last_input_encoded = self.encoder(x_seq[:, -1])
+        last_input_encoded = self.encoder(self.early_proj(x_seq[:, -1]))
         context_features = tf.concat([state, memory_context], axis=-1)
         channel_gate = self.gate_scale(context_features)
         channel_gate = tf.reshape(channel_gate, [batch, 1, 1, self.hidden_dim])
         channel_gate = tf.clip_by_value(channel_gate, 0.0, 1.0)
 
         blended = channel_gate * chosen_transform + (1 - channel_gate) * last_input_encoded
+        blended = self._exploration * blended + (1 - self._exploration) * last_input_encoded if hasattr(self, '_exploration') else blended
+
         merged = blended
         output_logits = self.decoder(merged)
 
@@ -201,6 +205,6 @@ class Sage14FX(tf.keras.Model):
             self._exploration = exploration
             self._alpha = alpha
             loss = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)(y_seq[:, -1], output_logits)
-            self._loss_pain = loss * alpha  # Apply alpha modulation here
+            self._loss_pain = loss * alpha
 
         return output_logits
