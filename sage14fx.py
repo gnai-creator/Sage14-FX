@@ -1,4 +1,4 @@
-# === SAGE14-FX v2.2: Emotionally Flexible Edition ===
+# === SAGE14-FX v3.0: Emotionally Flexible Edition ===
 # EpisodicMemory handles variable shots, dynamic channels respected.
 
 import tensorflow as tf
@@ -12,7 +12,6 @@ class EpisodicMemory(tf.keras.layers.Layer):
         self.buffer = None
 
     def write(self, embedding):
-        #print("📦 EpisodicMemory.write() — embedding shape:", embedding.shape)
         if self.buffer is None:
             self.buffer = embedding[tf.newaxis, ...]
         else:
@@ -20,9 +19,7 @@ class EpisodicMemory(tf.keras.layers.Layer):
 
     def read_all(self):
         if self.buffer is None:
-            #print("⚠️ EpisodicMemory.read_all(): buffer is empty")
             return tf.zeros((1, 1, 1))
-        #print("🧠 EpisodicMemory.read_all() — buffer shape:", self.buffer.shape)
         return self.buffer
 
 class TaskPainSystem(tf.keras.layers.Layer):
@@ -53,6 +50,39 @@ class ChoiceHypothesisModule(tf.keras.layers.Layer):
         chosen = tf.reduce_sum(stacked * weights, axis=1)
         return chosen
 
+class PositionalEncoding2D(tf.keras.layers.Layer):
+    def __init__(self, channels):
+        super().__init__()
+        self.channels = channels
+        self.dense = tf.keras.layers.Dense(channels, activation='tanh')
+
+    def call(self, x):
+        b, h, w, _ = tf.shape(x)[0], tf.shape(x)[1], tf.shape(x)[2], tf.shape(x)[3]
+        y_pos = tf.linspace(-1.0, 1.0, h)
+        x_pos = tf.linspace(-1.0, 1.0, w)
+        yy, xx = tf.meshgrid(y_pos, x_pos, indexing='ij')
+        pos = tf.stack([yy, xx], axis=-1)
+        pos = tf.expand_dims(pos, 0)
+        pos = tf.tile(pos, [b, 1, 1, 1])
+        pos = self.dense(pos)
+        return tf.concat([x, pos], axis=-1)
+
+class SimpleAttention(tf.keras.layers.Layer):
+    def __init__(self, dim):
+        super().__init__()
+        self.query = tf.keras.layers.Conv2D(dim, 1)
+        self.key = tf.keras.layers.Conv2D(dim, 1)
+        self.value = tf.keras.layers.Conv2D(dim, 1)
+        self.out = tf.keras.layers.Conv2D(dim, 1)
+
+    def call(self, x):
+        q = self.query(x)
+        k = self.key(x)
+        v = self.value(x)
+        attn = tf.nn.softmax(tf.reduce_sum(q * k, axis=-1, keepdims=True), axis=[1, 2])
+        out = tf.reduce_sum(v * attn, axis=-1, keepdims=True)
+        return self.out(out)
+
 class Sage14FX(tf.keras.Model):
     def __init__(self, hidden_dim):
         super().__init__()
@@ -61,12 +91,17 @@ class Sage14FX(tf.keras.Model):
             tf.keras.layers.Conv2D(hidden_dim, (3, 3), padding='same', activation='relu'),
             tf.keras.layers.Conv2D(hidden_dim, (3, 3), padding='same', activation='relu'),
         ])
-        self.norm = tf.keras.layers.LayerNormalization() 
+        self.norm = tf.keras.layers.LayerNormalization()
+        self.pos_enc = PositionalEncoding2D(hidden_dim)
+        self.attn = SimpleAttention(hidden_dim)
         self.agent = tf.keras.layers.GRUCell(hidden_dim)
         self.memory = EpisodicMemory()
         self.pain_system = TaskPainSystem(hidden_dim)
         self.chooser = ChoiceHypothesisModule(hidden_dim)
-        self.decoder = tf.keras.layers.Conv2D(10, (1, 1))
+        self.decoder = tf.keras.Sequential([
+            tf.keras.layers.Conv2D(hidden_dim, (3, 3), padding='same', activation='relu'),
+            tf.keras.layers.Conv2D(10, (1, 1))
+        ])
         self._pain = None
         self._gate = None
         self._loss_pain = None
@@ -100,9 +135,11 @@ class Sage14FX(tf.keras.Model):
         memory_context = tf.reshape(memory_tensor, [batch, -1])
 
         full_context = tf.concat([task_embed, memory_context], axis=-1)
-        #print("🧪 full_context.shape (pre-tile):", full_context.shape)
         full_context = tf.reshape(full_context, [batch, 1, 1, -1])
         full_context = tf.tile(full_context, [1, 20, 20, 1])
+
+        full_context = self.pos_enc(full_context)
+        full_context = self.attn(full_context)
 
         chosen_transform = self.chooser(full_context)
         output_logits = self.decoder(chosen_transform)
@@ -112,7 +149,7 @@ class Sage14FX(tf.keras.Model):
             pain, gate = self.pain_system(output_logits, expected)
             self._pain = pain
             self._gate = gate
-            loss_fn = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)  # ✅
-            self._loss_pain = loss_fn(y_seq[:, -1], output_logits)  # ✅
+            loss_fn = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
+            self._loss_pain = loss_fn(y_seq[:, -1], output_logits)
 
         return output_logits
