@@ -59,7 +59,10 @@ class Sage14FX(tf.keras.Model):
     def __init__(self, hidden_dim):
         super().__init__()
         self.hidden_dim = hidden_dim
-        self.encoder = tf.keras.layers.Conv2D(hidden_dim, (3, 3), padding='same', activation='relu')
+        self.encoder = tf.keras.Sequential([
+            tf.keras.layers.Conv2D(hidden_dim, (3, 3), padding='same', activation='relu'),
+            tf.keras.layers.Conv2D(hidden_dim, (3, 3), padding='same', activation='relu'),
+        ])
         self.norm = tf.keras.layers.BatchNormalization()
         self.agent = tf.keras.layers.GRUCell(hidden_dim)
         self.memory = EpisodicMemory()
