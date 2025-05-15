@@ -81,7 +81,7 @@ class Sage14FX(tf.keras.Model):
 
         task_embed = state
         memory_tensor = self.memory.read_all()  # (T, B, D)
-        memory_context = tf.reshape(memory_tensor, [tf.shape(memory_tensor))  # (B, T*D)
+        memory_context = tf.reshape(memory_tensor, [tf.shape(memory_tensor)[1], -1])
         full_context = tf.concat([task_embed, memory_context], axis=-1)  # (B, D + T*D)
         full_context = tf.reshape(full_context, [batch, 1, 1, -1])
         full_context = tf.tile(full_context, [1, 20, 20, 1])
