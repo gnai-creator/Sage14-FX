@@ -12,7 +12,7 @@ class EpisodicMemory(tf.keras.layers.Layer):
         self.buffer = None
 
     def write(self, embedding):
-        print("📦 EpisodicMemory.write() — embedding shape:", embedding.shape)
+        #print("📦 EpisodicMemory.write() — embedding shape:", embedding.shape)
         if self.buffer is None:
             self.buffer = embedding[tf.newaxis, ...]
         else:
@@ -20,9 +20,9 @@ class EpisodicMemory(tf.keras.layers.Layer):
 
     def read_all(self):
         if self.buffer is None:
-            print("⚠️ EpisodicMemory.read_all(): buffer is empty")
+            #print("⚠️ EpisodicMemory.read_all(): buffer is empty")
             return tf.zeros((1, 1, 1))
-        print("🧠 EpisodicMemory.read_all() — buffer shape:", self.buffer.shape)
+        #print("🧠 EpisodicMemory.read_all() — buffer shape:", self.buffer.shape)
         return self.buffer
 
 class TaskPainSystem(tf.keras.layers.Layer):
@@ -61,7 +61,7 @@ class Sage14FX(tf.keras.Model):
             tf.keras.layers.Conv2D(hidden_dim, (3, 3), padding='same', activation='relu'),
             tf.keras.layers.Conv2D(hidden_dim, (3, 3), padding='same', activation='relu'),
         ])
-        self.norm = tf.keras.layers.LayerNormalization()  # ✅ substituto do BatchNorm
+        self.norm = tf.keras.layers.LayerNormalization() 
         self.agent = tf.keras.layers.GRUCell(hidden_dim)
         self.memory = EpisodicMemory()
         self.pain_system = TaskPainSystem(hidden_dim)
@@ -100,7 +100,7 @@ class Sage14FX(tf.keras.Model):
         memory_context = tf.reshape(memory_tensor, [batch, -1])
 
         full_context = tf.concat([task_embed, memory_context], axis=-1)
-        print("🧪 full_context.shape (pre-tile):", full_context.shape)
+        #print("🧪 full_context.shape (pre-tile):", full_context.shape)
         full_context = tf.reshape(full_context, [batch, 1, 1, -1])
         full_context = tf.tile(full_context, [1, 20, 20, 1])
 
