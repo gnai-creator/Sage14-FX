@@ -14,7 +14,7 @@ class EpisodicMemory(tf.keras.layers.Layer):
     def write(self, embedding):
         print("📦 EpisodicMemory.write() — embedding shape:", embedding.shape)
         if self.buffer is None:
-            self.buffer = embedding[tf.newaxis, ...]  # (1, B, D)
+            self.buffer = embedding[tf.newaxis, ...]
         else:
             self.buffer = tf.concat([self.buffer, embedding[tf.newaxis, ...]], axis=0)
 
@@ -23,8 +23,7 @@ class EpisodicMemory(tf.keras.layers.Layer):
             print("⚠️ EpisodicMemory.read_all(): buffer is empty")
             return tf.zeros((1, 1, 1))
         print("🧠 EpisodicMemory.read_all() — buffer shape:", self.buffer.shape)
-        return self.buffer  # (T, B, D)
-
+        return self.buffer
 
 class TaskPainSystem(tf.keras.layers.Layer):
     def __init__(self, dim):
@@ -46,14 +45,13 @@ class ChoiceHypothesisModule(tf.keras.layers.Layer):
         self.selector = tf.keras.layers.Dense(4, activation='softmax')
 
     def call(self, x):
-        x = self.input_proj(x)  # (B, H, W, D)
-        candidates = [h(x) for h in self.hypotheses]  # list of (B, H, W, D)
-        stacked = tf.stack(candidates, axis=1)  # (B, 4, H, W, D)
-        weights = self.selector(tf.reduce_mean(x, axis=[1, 2]))  # (B, 4)
-        weights = tf.reshape(weights, [-1, 4, 1, 1, 1])  # (B, 4, 1, 1, 1)
-        chosen = tf.reduce_sum(stacked * weights, axis=1)  # (B, H, W, D)
+        x = self.input_proj(x)
+        candidates = [h(x) for h in self.hypotheses]
+        stacked = tf.stack(candidates, axis=1)
+        weights = self.selector(tf.reduce_mean(x, axis=[1, 2]))
+        weights = tf.reshape(weights, [-1, 4, 1, 1, 1])
+        chosen = tf.reduce_sum(stacked * weights, axis=1)
         return chosen
-
 
 class Sage14FX(tf.keras.Model):
     def __init__(self, hidden_dim):
@@ -63,7 +61,7 @@ class Sage14FX(tf.keras.Model):
             tf.keras.layers.Conv2D(hidden_dim, (3, 3), padding='same', activation='relu'),
             tf.keras.layers.Conv2D(hidden_dim, (3, 3), padding='same', activation='relu'),
         ])
-        self.norm = tf.keras.layers.LayerNormalization()
+        self.norm = tf.keras.layers.LayerNormalization()  # ✅ substituto do BatchNorm
         self.agent = tf.keras.layers.GRUCell(hidden_dim)
         self.memory = EpisodicMemory()
         self.pain_system = TaskPainSystem(hidden_dim)
@@ -78,46 +76,43 @@ class Sage14FX(tf.keras.Model):
         T = tf.shape(x_seq)[1]
         state = tf.zeros([batch, self.hidden_dim])
         self.memory.reset()
-    
+
         if training or T > 1:
             for t in range(T):
                 x = x_seq[:, t]
                 x = self.encoder(x)
-                x = self.norm(x, training=training)
+                x = self.norm(x)
                 x_flat = tf.reduce_mean(x, axis=[1, 2])
                 out, [state] = self.agent(x_flat, [state])
                 self.memory.write(out)
         else:
-            # Inference case: only 1 shot
             x = x_seq[:, 0]
             x = self.encoder(x)
-            x = self.norm(x, training=False)
+            x = self.norm(x)
             x_flat = tf.reduce_mean(x, axis=[1, 2])
             out, [state] = self.agent(x_flat, [state])
             self.memory.write(out)
-            self.memory.write(out)  # 🧠 Duplicate to simulate 2-shot context
-    
+            self.memory.write(out)
+
         task_embed = state
         memory_tensor = self.memory.read_all()
         memory_tensor = tf.transpose(memory_tensor, [1, 0, 2])
         memory_context = tf.reshape(memory_tensor, [batch, -1])
-    
+
         full_context = tf.concat([task_embed, memory_context], axis=-1)
-        print("🧪 full_context.shape (pre-tile):", full_context.shape)  # DEBUG
+        print("🧪 full_context.shape (pre-tile):", full_context.shape)
         full_context = tf.reshape(full_context, [batch, 1, 1, -1])
         full_context = tf.tile(full_context, [1, 20, 20, 1])
-    
+
         chosen_transform = self.chooser(full_context)
         output_logits = self.decoder(chosen_transform)
-    
+
         if y_seq is not None:
-            last_y = tf.one_hot(y_seq[:, -1], depth=10, dtype=tf.float32)
-            pain, gate = self.pain_system(output_logits, last_y)
+            expected = tf.one_hot(y_seq[:, -1], depth=10, dtype=tf.float32)
+            pain, gate = self.pain_system(output_logits, expected)
             self._pain = pain
             self._gate = gate
-            loss_fn = tf.keras.losses.CategoricalCrossentropy(from_logits=True)
-            self._loss_pain = loss_fn(last_y, output_logits)
-    
+            loss_fn = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)  # ✅
+            self._loss_pain = loss_fn(y_seq[:, -1], output_logits)  # ✅
+
         return output_logits
-
-
