@@ -1,4 +1,4 @@
-# === SAGE14-FX v4.1: Fractal Curious Edition ===
+# === SAGE14-FX v4.2: Fractal Curious Edition ===
 
 import tensorflow as tf
 
@@ -21,6 +21,7 @@ class EpisodicMemory(tf.keras.layers.Layer):
             return tf.zeros((1, 1, 1))
         return self.buffer
 
+
 class PositionalEncoding2D(tf.keras.layers.Layer):
     def __init__(self, channels):
         super().__init__()
@@ -37,6 +38,7 @@ class PositionalEncoding2D(tf.keras.layers.Layer):
         pos = self.dense(pos)
         return tf.concat([x, pos], axis=-1)
 
+
 class FractalEncoder(tf.keras.layers.Layer):
     def __init__(self, dim):
         super().__init__()
@@ -50,6 +52,7 @@ class FractalEncoder(tf.keras.layers.Layer):
         c5 = self.conv5(x)
         c7 = self.conv7(x)
         return self.merge(c3 + c5 + c7)
+
 
 class FractalBlock(tf.keras.layers.Layer):
     def __init__(self, dim):
@@ -66,6 +69,7 @@ class FractalBlock(tf.keras.layers.Layer):
         concat = tf.concat([out1, out3, out5], axis=-1)
         return self.project(concat)
 
+
 class MultiHeadAttentionWrapper(tf.keras.layers.Layer):
     def __init__(self, dim, heads=8):
         super().__init__()
@@ -74,6 +78,7 @@ class MultiHeadAttentionWrapper(tf.keras.layers.Layer):
     def call(self, x):
         return self.attn(query=x, value=x, key=x)
 
+
 class ChoiceHypothesisModule(tf.keras.layers.Layer):
     def __init__(self, dim):
         super().__init__()
@@ -81,13 +86,20 @@ class ChoiceHypothesisModule(tf.keras.layers.Layer):
         self.hypotheses = [tf.keras.layers.Conv2D(dim, kernel_size=1, activation='relu') for _ in range(4)]
         self.selector = tf.keras.layers.Dense(4, activation='softmax')
 
-    def call(self, x):
+    def call(self, x, hard=False):
         x = self.input_proj(x)
         candidates = [h(x) for h in self.hypotheses]
         stacked = tf.stack(candidates, axis=1)
         weights = self.selector(tf.reduce_mean(x, axis=[1, 2]))
-        weights = tf.reshape(weights, [-1, 4, 1, 1, 1])
-        return tf.reduce_sum(stacked * weights, axis=1)
+
+        if hard:
+            idx = tf.argmax(weights, axis=-1)  # [B]
+            one_hot = tf.one_hot(idx, depth=4, dtype=tf.float32)[:, :, tf.newaxis, tf.newaxis, tf.newaxis]
+            return tf.reduce_sum(stacked * one_hot, axis=1)
+        else:
+            weights = tf.reshape(weights, [-1, 4, 1, 1, 1])
+            return tf.reduce_sum(stacked * weights, axis=1)
+
 
 class TaskPainSystem(tf.keras.layers.Layer):
     def __init__(self, dim):
@@ -99,12 +111,31 @@ class TaskPainSystem(tf.keras.layers.Layer):
         diff = tf.square(pred - expected)
         pain = tf.reduce_mean(self.sensitivity * diff)
         gate = tf.sigmoid((pain - self.threshold) * 10.0)
+        tf.print("Pain:", pain, "Gate:", gate)
         return pain, gate
 
+
+class AttentionOverMemory(tf.keras.layers.Layer):
+    def __init__(self, dim):
+        super().__init__()
+        self.query_proj = tf.keras.layers.Dense(dim)
+        self.key_proj = tf.keras.layers.Dense(dim)
+        self.value_proj = tf.keras.layers.Dense(dim)
+
+    def call(self, memory, query):
+        q = self.query_proj(query)[:, tf.newaxis, :]  # [B, 1, D]
+        k = self.key_proj(memory)
+        v = self.value_proj(memory)
+        attn_weights = tf.nn.softmax(tf.reduce_sum(q * k, axis=-1, keepdims=True), axis=1)
+        attended = tf.reduce_sum(attn_weights * v, axis=1)
+        return attended
+
+
 class Sage14FX(tf.keras.Model):
-    def __init__(self, hidden_dim):
+    def __init__(self, hidden_dim, use_hard_choice=False):
         super().__init__()
         self.hidden_dim = hidden_dim
+        self.use_hard_choice = use_hard_choice
         self.encoder = tf.keras.Sequential([
             FractalEncoder(hidden_dim),
             FractalBlock(hidden_dim),
@@ -117,6 +148,8 @@ class Sage14FX(tf.keras.Model):
         self.memory = EpisodicMemory()
         self.chooser = ChoiceHypothesisModule(hidden_dim)
         self.pain_system = TaskPainSystem(hidden_dim)
+        self.attend_memory = AttentionOverMemory(hidden_dim)
+        self.projector = tf.keras.layers.Conv2D(self.hidden_dim, 1)
         self.decoder = tf.keras.Sequential([
             tf.keras.layers.Conv2D(hidden_dim, 3, padding='same', activation='relu'),
             tf.keras.layers.BatchNormalization(),
@@ -135,15 +168,15 @@ class Sage14FX(tf.keras.Model):
             out, [state] = self.agent(x_flat, [state])
             self.memory.write(out)
 
-        task_embed = state
         memory_tensor = tf.transpose(self.memory.read_all(), [1, 0, 2])
-        memory_context = tf.reshape(memory_tensor, [batch, -1])
-        context = tf.concat([task_embed, memory_context], axis=-1)
-        context = tf.tile(tf.reshape(context, [batch, 1, 1, -1]), [1, 20, 20, 1])
+        memory_context = self.attend_memory(memory_tensor, state)
+        full_context = tf.concat([state, memory_context], axis=-1)
+        context = tf.tile(tf.reshape(full_context, [batch, 1, 1, -1]), [1, 20, 20, 1])
 
-        projected_input = tf.keras.layers.Conv2D(self.hidden_dim, 1)(self.pos_enc(context))
+        projected_input = self.projector(self.pos_enc(context))
         attended = self.attn(projected_input)
-        chosen_transform = self.chooser(attended)
+        chosen_transform = self.chooser(attended, hard=self.use_hard_choice)
+
         last_input_encoded = self.encoder(x_seq[:, -1])
         merged = tf.concat([chosen_transform, last_input_encoded], axis=-1)
         output_logits = self.decoder(merged)
