@@ -116,7 +116,7 @@ class TaskPainSystem(tf.keras.layers.Layer):
         adjusted_pain = raw_pain * (1.0 - exploration_gate)  # Fury mode: high exploration = less perceived pain
         gate = tf.sigmoid((adjusted_pain - self.threshold) * 10.0)
 
-        tf.print("Pain:", raw_pain, "Fury_Pain:" adjusted_pain, "Gate:", gate, "Exploration Gate:", exploration_gate)
+        tf.print("Pain:", raw_pain, "Fury_Pain:", adjusted_pain, "Gate:", gate, "Exploration Gate:", exploration_gate)
         return pain, gate
 
 
