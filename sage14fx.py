@@ -1,4 +1,4 @@
-# === SAGE14-FX v4.8: Alpha Barbarian Mage — Now With Exploratory Gating and Adaptive Decoder Blending ===
+# === SAGE14-FX v4.9: Alpha Barbarian Mage — Now With Exploratory Gating, Adaptive Decoder Blending, and Long-Term Memory ===
 
 import tensorflow as tf
 
@@ -20,6 +20,30 @@ class EpisodicMemory(tf.keras.layers.Layer):
         if self.buffer is None:
             return tf.zeros((1, 1, 1))
         return self.buffer
+
+
+class LongTermMemory(tf.keras.layers.Layer):
+    def __init__(self, memory_size, embedding_dim):
+        super().__init__()
+        self.memory_size = memory_size
+        self.embedding_dim = embedding_dim
+        self.memory = self.add_weight(
+            shape=(memory_size, embedding_dim),
+            initializer='zeros',
+            trainable=False,
+            name='long_term_memory')
+
+    def store(self, index, embedding):
+        update = tf.tensor_scatter_nd_update(self.memory, [[index]], [embedding])
+        self.memory.assign(update)
+
+    def recall(self, index):
+        return tf.gather(self.memory, index)
+
+    def match_context(self, context):
+        sim = tf.keras.losses.cosine_similarity(tf.expand_dims(context, 1), self.memory[tf.newaxis, ...], axis=-1)
+        best = tf.argmin(sim, axis=-1)
+        return self.recall(best[0])
 
 
 class PositionalEncoding2D(tf.keras.layers.Layer):
@@ -152,6 +176,7 @@ class Sage14FX(tf.keras.Model):
         self.attn = MultiHeadAttentionWrapper(hidden_dim, heads=8)
         self.agent = tf.keras.layers.GRUCell(hidden_dim)
         self.memory = EpisodicMemory()
+        self.longterm = LongTermMemory(memory_size=128, embedding_dim=hidden_dim)
         self.chooser = ChoiceHypothesisModule(hidden_dim)
         self.pain_system = TaskPainSystem(hidden_dim)
         self.attend_memory = AttentionOverMemory(hidden_dim)
@@ -178,7 +203,8 @@ class Sage14FX(tf.keras.Model):
 
         memory_tensor = tf.transpose(self.memory.read_all(), [1, 0, 2])
         memory_context = self.attend_memory(memory_tensor, state)
-        full_context = tf.concat([state, memory_context], axis=-1)
+        long_term_context = self.longterm.match_context(state)
+        full_context = tf.concat([state, memory_context, long_term_context], axis=-1)
         context = tf.tile(tf.reshape(full_context, [batch, 1, 1, -1]), [1, 20, 20, 1])
 
         projected_input = self.projector(self.pos_enc(context))
@@ -205,6 +231,7 @@ class Sage14FX(tf.keras.Model):
             self._gate = gate
             self._exploration = exploration
             self._alpha = alpha
+            self.longterm.store(0, tf.reduce_mean(state, axis=0))  # crude storage demo
             loss = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)(y_seq[:, -1], output_logits)
             self._loss_pain = loss * alpha
 
