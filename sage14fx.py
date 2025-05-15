@@ -1,27 +1,24 @@
-# === SAGE14-FX: A Philosophical Meta-AGI ===
-# Architecture built on the triangle of AGI: Memory, Pain, and Choice.
-# Capable of few-shot ARC-style induction.
+# === SAGE14-FX v2: Emotionally Mature Edition ===
+# EpisodicMemory now handles variable-length few-shot episodes.
 
 import tensorflow as tf
 
 class EpisodicMemory(tf.keras.layers.Layer):
-    """Stores and retrieves recent task-specific embeddings."""
-    def __init__(self, dim, slots=3):
+    """Flexible memory that accumulates task-specific embeddings across time."""
+    def __init__(self):
         super().__init__()
-        self.slots = slots
-        self.dim = dim
-        self.memory = self.add_weight(shape=(slots, dim), initializer='zeros', trainable=False)
-        self.index = 0
+        self.buffer = []
+
+    def reset(self):
+        self.buffer = []
 
     def write(self, embedding):
-        self.memory[self.index % self.slots].assign(embedding)
-        self.index += 1
+        self.buffer.append(embedding)
 
     def read_all(self):
-        return tf.identity(self.memory)
+        return tf.stack(self.buffer, axis=0) if self.buffer else tf.zeros((1, 1))
 
 class TaskPainSystem(tf.keras.layers.Layer):
-    """Tracks divergence between current predictions and task-specific patterns."""
     def __init__(self, dim):
         super().__init__()
         self.threshold = tf.Variable(0.1, trainable=True)
@@ -34,7 +31,6 @@ class TaskPainSystem(tf.keras.layers.Layer):
         return pain, gate
 
 class ChoiceHypothesisModule(tf.keras.layers.Layer):
-    """Selects between generated transformation hypotheses."""
     def __init__(self, dim):
         super().__init__()
         self.hypotheses = [tf.keras.layers.Dense(dim, activation='relu') for _ in range(4)]
@@ -48,35 +44,33 @@ class ChoiceHypothesisModule(tf.keras.layers.Layer):
         return chosen
 
 class Sage14FX(tf.keras.Model):
-    """Full model combining Sage14-style reasoning with episodic memory and dynamic hypothesis selection."""
     def __init__(self, hidden_dim):
         super().__init__()
         self.encoder = tf.keras.layers.Conv2D(hidden_dim, (3, 3), padding='same', activation='relu')
         self.norm = tf.keras.layers.LayerNormalization()
         self.agent = tf.keras.layers.GRUCell(hidden_dim)
-        self.memory = EpisodicMemory(hidden_dim)
+        self.memory = EpisodicMemory()
         self.pain_system = TaskPainSystem(hidden_dim)
         self.chooser = ChoiceHypothesisModule(hidden_dim)
         self.decoder = tf.keras.layers.Conv2D(10, (1, 1))
 
     def call(self, x_seq, y_seq=None, training=False):
-        # x_seq: (B, T, H, W, C) | y_seq: (B, T, H, W)
-        batch, T = tf.shape(x_seq)[0], tf.shape(x_seq)[1]
-        outputs = []
+        batch = tf.shape(x_seq)[0]
+        T = tf.shape(x_seq)[1]
         state = tf.zeros([batch, self.agent.units])
+        self.memory.reset()
 
         for t in range(T):
-            x = x_seq[:, t]
+            x = x_seq[:, t]  # (B, H, W, C)
             x = self.encoder(x)
             x = self.norm(x)
             x_flat = tf.reduce_mean(x, axis=[1, 2])
             out, state = self.agent(x_flat, [state])
             self.memory.write(out)
-            outputs.append(out)
 
-        task_embed = tf.reduce_mean(tf.stack(outputs, axis=1), axis=1)
-        memory_context = self.memory.read_all()
-        full_context = tf.concat([task_embed, tf.reduce_mean(memory_context, axis=0, keepdims=True)], axis=-1)
+        task_embed = state
+        memory_context = tf.reduce_mean(self.memory.read_all(), axis=0, keepdims=True)
+        full_context = tf.concat([task_embed, memory_context], axis=-1)
         full_context = tf.reshape(full_context, [batch, 1, 1, -1])
         full_context = tf.tile(full_context, [1, 20, 20, 1])
 
