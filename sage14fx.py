@@ -63,7 +63,7 @@ class Sage14FX(tf.keras.Model):
             tf.keras.layers.Conv2D(hidden_dim, (3, 3), padding='same', activation='relu'),
             tf.keras.layers.Conv2D(hidden_dim, (3, 3), padding='same', activation='relu'),
         ])
-        self.norm = tf.keras.layers.BatchNormalization()
+        self.norm = tf.keras.layers.LayerNormalization()
         self.agent = tf.keras.layers.GRUCell(hidden_dim)
         self.memory = EpisodicMemory()
         self.pain_system = TaskPainSystem(hidden_dim)
