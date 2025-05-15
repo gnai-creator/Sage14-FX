@@ -1,4 +1,4 @@
-# === SAGE14-FX v4.7: Alpha Barbarian Mage — Now With Early Channel Alignment and Fury Memory ===
+# === SAGE14-FX v4.8: Alpha Barbarian Mage — Now With Exploratory Gating and Adaptive Decoder Blending ===
 
 import tensorflow as tf
 
@@ -192,10 +192,11 @@ class Sage14FX(tf.keras.Model):
         channel_gate = tf.clip_by_value(channel_gate, 0.0, 1.0)
 
         blended = channel_gate * chosen_transform + (1 - channel_gate) * last_input_encoded
-        blended = self._exploration * blended + (1 - self._exploration) * last_input_encoded if hasattr(self, '_exploration') else blended
+        if hasattr(self, '_exploration') and hasattr(self, '_alpha'):
+            blend_ratio = self._alpha
+            blended = blend_ratio * blended + (1 - blend_ratio) * last_input_encoded
 
-        merged = blended
-        output_logits = self.decoder(merged)
+        output_logits = self.decoder(blended)
 
         if y_seq is not None:
             expected = tf.one_hot(y_seq[:, -1], depth=10, dtype=tf.float32)
