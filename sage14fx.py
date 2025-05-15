@@ -1,5 +1,5 @@
-# === SAGE14-FX v2: Emotionally Mature Edition ===
-# EpisodicMemory now handles variable-length few-shot episodes.
+# === SAGE14-FX v2.1: Emotionally Stable Edition ===
+# EpisodicMemory improved for batch dimension.
 
 import os
 import json
@@ -12,16 +12,21 @@ class EpisodicMemory(tf.keras.layers.Layer):
     """Flexible memory that accumulates task-specific embeddings across time."""
     def __init__(self):
         super().__init__()
-        self.buffer = []
+        self.buffer = None
 
     def reset(self):
-        self.buffer = []
+        self.buffer = None
 
     def write(self, embedding):
-        self.buffer.append(embedding)
+        if self.buffer is None:
+            self.buffer = embedding[tf.newaxis, ...]  # (1, B, D)
+        else:
+            self.buffer = tf.concat([self.buffer, embedding[tf.newaxis, ...]], axis=0)
 
     def read_all(self):
-        return tf.stack(self.buffer, axis=0) if self.buffer else tf.zeros((1, 1))
+        if self.buffer is None:
+            return tf.zeros((1, 1, 1))  # Dummy shape fallback
+        return self.buffer  # shape: (T, B, D)
 
 class TaskPainSystem(tf.keras.layers.Layer):
     def __init__(self, dim):
@@ -42,16 +47,12 @@ class ChoiceHypothesisModule(tf.keras.layers.Layer):
         self.selector = tf.keras.layers.Dense(4, activation='softmax')
 
     def call(self, x):
-        candidates = [h(x) for h in self.hypotheses]  
-        stacked = tf.stack(candidates, axis=1)        
-        weights = self.selector(tf.reduce_mean(x, axis=[1, 2]))  
-        
-        
-        weights = tf.reshape(weights, [-1, 4, 1, 1, 1])
-        
-        chosen = tf.reduce_sum(stacked * weights, axis=1)
+        candidates = [h(x) for h in self.hypotheses]  # List of (B, H, W, D)
+        stacked = tf.stack(candidates, axis=1)        # (B, 4, H, W, D)
+        weights = self.selector(tf.reduce_mean(x, axis=[1, 2]))  # (B, 4)
+        weights = tf.reshape(weights, [-1, 4, 1, 1, 1])           # (B, 4, 1, 1, 1)
+        chosen = tf.reduce_sum(stacked * weights, axis=1)        # (B, H, W, D)
         return chosen
-
 
 class Sage14FX(tf.keras.Model):
     def __init__(self, hidden_dim):
@@ -79,18 +80,17 @@ class Sage14FX(tf.keras.Model):
             out, [state] = self.agent(x_flat, [state])
             self.memory.write(out)
 
-        task_embed = state
-        memory_context = tf.reduce_mean(self.memory.read_all(), axis=0)
-        memory_context = tf.broadcast_to(memory_context, [batch, self.hidden_dim])
-        full_context = tf.concat([task_embed, memory_context], axis=-1)
+        task_embed = state  # (B, D)
+        memory_context = tf.reduce_mean(self.memory.read_all(), axis=0)  # (B, D)
+        full_context = tf.concat([task_embed, memory_context], axis=-1)  # (B, 2D)
         full_context = tf.reshape(full_context, [batch, 1, 1, -1])
-        full_context = tf.tile(full_context, [1, 20, 20, 1])
+        full_context = tf.tile(full_context, [1, 20, 20, 1])  # (B, 20, 20, 2D)
 
-        chosen_transform = self.chooser(full_context)
-        output_logits = self.decoder(chosen_transform)
+        chosen_transform = self.chooser(full_context)         # (B, 20, 20, D)
+        output_logits = self.decoder(chosen_transform)        # (B, 20, 20, 10)
 
         if y_seq is not None:
-            last_y = tf.one_hot(y_seq[:, -1], depth=10, dtype=tf.float32)
+            last_y = tf.one_hot(y_seq[:, -1], depth=10, dtype=tf.float32)  # (B, 20, 20, 10)
             pain, gate = self.pain_system(output_logits, last_y)
             self.add_metric(pain, name="task_pain")
             self.add_metric(gate, name="adaptation_gate")
