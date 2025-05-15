@@ -57,9 +57,9 @@ class PositionalEncoding2D(tf.keras.layers.Layer):
         self.dense = tf.keras.layers.Dense(channels, activation='tanh')
 
     def call(self, x):
-        b, h, w, _ = tf.shape(x)[0], tf.shape(x)[1], tf.shape(x)[2], tf.shape(x)[3]
-        y_pos = tf.linspace(-1.0, 1.0, h)
-        x_pos = tf.linspace(-1.0, 1.0, w)
+        b, h, w = tf.shape(x)[0], tf.shape(x)[1], tf.shape(x)[2]
+        y_pos = tf.linspace(-1.0, 1.0, tf.cast(h, tf.int32))
+        x_pos = tf.linspace(-1.0, 1.0, tf.cast(w, tf.int32))
         yy, xx = tf.meshgrid(y_pos, x_pos, indexing='ij')
         pos = tf.stack([yy, xx], axis=-1)
         pos = tf.expand_dims(pos, 0)
@@ -111,6 +111,7 @@ class Sage14FX(tf.keras.Model):
         self._gate = None
         self._loss_pain = None
 
+    @tf.function
     def call(self, x_seq, y_seq=None, training=False):
         batch = tf.shape(x_seq)[0]
         T = tf.shape(x_seq)[1]
@@ -118,7 +119,7 @@ class Sage14FX(tf.keras.Model):
         self.memory.reset()
 
         if training or T > 1:
-            for t in range(T):
+            for t in tf.range(T):
                 x = x_seq[:, t]
                 x = self.encoder(x)
                 x = self.norm(x)
