@@ -42,11 +42,16 @@ class ChoiceHypothesisModule(tf.keras.layers.Layer):
         self.selector = tf.keras.layers.Dense(4, activation='softmax')
 
     def call(self, x):
-        candidates = [h(x) for h in self.hypotheses]
-        stacked = tf.stack(candidates, axis=1)
-        weights = self.selector(tf.reduce_mean(x, axis=[1, 2]))
-        chosen = tf.reduce_sum(stacked * tf.expand_dims(tf.expand_dims(weights, 2), 3), axis=1)
+        candidates = [h(x) for h in self.hypotheses]  
+        stacked = tf.stack(candidates, axis=1)        
+        weights = self.selector(tf.reduce_mean(x, axis=[1, 2]))  
+        
+        
+        weights = tf.reshape(weights, [-1, 4, 1, 1, 1])
+        
+        chosen = tf.reduce_sum(stacked * weights, axis=1)
         return chosen
+
 
 class Sage14FX(tf.keras.Model):
     def __init__(self, hidden_dim):
