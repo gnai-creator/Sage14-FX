@@ -1,4 +1,4 @@
-# === SAGE14-FX v4.2: Fractal Curious Edition ===
+# === SAGE14-FX v4.3: Pain-Aware Curious Hydra ===
 
 import tensorflow as tf
 
@@ -21,7 +21,6 @@ class EpisodicMemory(tf.keras.layers.Layer):
             return tf.zeros((1, 1, 1))
         return self.buffer
 
-
 class PositionalEncoding2D(tf.keras.layers.Layer):
     def __init__(self, channels):
         super().__init__()
@@ -38,14 +37,14 @@ class PositionalEncoding2D(tf.keras.layers.Layer):
         pos = self.dense(pos)
         return tf.concat([x, pos], axis=-1)
 
-
 class FractalEncoder(tf.keras.layers.Layer):
     def __init__(self, dim):
         super().__init__()
         self.branch3 = tf.keras.layers.Conv2D(dim // 2, kernel_size=3, padding='same', activation='relu')
         self.branch5 = tf.keras.layers.Conv2D(dim // 2, kernel_size=5, padding='same', activation='relu')
         self.merge = tf.keras.layers.Conv2D(dim, kernel_size=1, padding='same', activation='relu')
-        self.residual = tf.keras.layers.Conv2D(dim, kernel_size=1, padding='same')  # For identity path
+        self.residual = tf.keras.layers.Conv2D(dim, kernel_size=1, padding='same')
+        self.gate = tf.keras.layers.Dense(dim, activation='sigmoid')
 
     def call(self, x):
         b3 = self.branch3(x)
@@ -53,9 +52,9 @@ class FractalEncoder(tf.keras.layers.Layer):
         merged = tf.concat([b3, b5], axis=-1)
         out = self.merge(merged)
         skip = self.residual(x)
-        return tf.nn.relu(out + skip)
-
-
+        gate = tf.reduce_mean(out, axis=[1, 2], keepdims=True)
+        gate = self.gate(gate)
+        return tf.nn.relu(gate * skip + (1 - gate) * out)
 
 class FractalBlock(tf.keras.layers.Layer):
     def __init__(self, dim):
@@ -63,14 +62,15 @@ class FractalBlock(tf.keras.layers.Layer):
         self.conv = tf.keras.layers.Conv2D(dim, kernel_size=3, padding='same', activation='relu')
         self.bn = tf.keras.layers.BatchNormalization()
         self.skip = tf.keras.layers.Conv2D(dim, kernel_size=1, padding='same')
+        self.gate = tf.keras.layers.Dense(dim, activation='sigmoid')
 
     def call(self, x):
         out = self.conv(x)
         out = self.bn(out)
         skip = self.skip(x)
-        return tf.nn.relu(out + skip)
-
-
+        gate = tf.reduce_mean(out, axis=[1, 2], keepdims=True)
+        gate = self.gate(gate)
+        return tf.nn.relu(gate * skip + (1 - gate) * out)
 
 class MultiHeadAttentionWrapper(tf.keras.layers.Layer):
     def __init__(self, dim, heads=8):
@@ -79,7 +79,6 @@ class MultiHeadAttentionWrapper(tf.keras.layers.Layer):
 
     def call(self, x):
         return self.attn(query=x, value=x, key=x)
-
 
 class ChoiceHypothesisModule(tf.keras.layers.Layer):
     def __init__(self, dim):
@@ -95,13 +94,12 @@ class ChoiceHypothesisModule(tf.keras.layers.Layer):
         weights = self.selector(tf.reduce_mean(x, axis=[1, 2]))
 
         if hard:
-            idx = tf.argmax(weights, axis=-1)  # [B]
+            idx = tf.argmax(weights, axis=-1)
             one_hot = tf.one_hot(idx, depth=4, dtype=tf.float32)[:, :, tf.newaxis, tf.newaxis, tf.newaxis]
             return tf.reduce_sum(stacked * one_hot, axis=1)
         else:
             weights = tf.reshape(weights, [-1, 4, 1, 1, 1])
             return tf.reduce_sum(stacked * weights, axis=1)
-
 
 class TaskPainSystem(tf.keras.layers.Layer):
     def __init__(self, dim):
@@ -116,7 +114,6 @@ class TaskPainSystem(tf.keras.layers.Layer):
         tf.print("Pain:", pain, "Gate:", gate)
         return pain, gate
 
-
 class AttentionOverMemory(tf.keras.layers.Layer):
     def __init__(self, dim):
         super().__init__()
@@ -125,13 +122,12 @@ class AttentionOverMemory(tf.keras.layers.Layer):
         self.value_proj = tf.keras.layers.Dense(dim)
 
     def call(self, memory, query):
-        q = self.query_proj(query)[:, tf.newaxis, :]  # [B, 1, D]
+        q = self.query_proj(query)[:, tf.newaxis, :]
         k = self.key_proj(memory)
         v = self.value_proj(memory)
         attn_weights = tf.nn.softmax(tf.reduce_sum(q * k, axis=-1, keepdims=True), axis=1)
         attended = tf.reduce_sum(attn_weights * v, axis=1)
         return attended
-
 
 class Sage14FX(tf.keras.Model):
     def __init__(self, hidden_dim, use_hard_choice=False):
@@ -151,11 +147,18 @@ class Sage14FX(tf.keras.Model):
         self.chooser = ChoiceHypothesisModule(hidden_dim)
         self.pain_system = TaskPainSystem(hidden_dim)
         self.attend_memory = AttentionOverMemory(hidden_dim)
-        self.projector = tf.keras.layers.Conv2D(self.hidden_dim, 1)
-        self.decoder = tf.keras.Sequential([
-            tf.keras.layers.Conv2D(hidden_dim, 3, padding='same', activation='relu'),
-            tf.keras.layers.BatchNormalization(),
-            tf.keras.layers.Conv2D(10, 1)
+        self.projector = tf.keras.layers.Conv2D(hidden_dim, 1)
+        self.decoders = [
+            tf.keras.Sequential([
+                tf.keras.layers.Conv2D(hidden_dim, 3, padding='same', activation='relu'),
+                tf.keras.layers.Conv2D(10, 1)
+            ]) for _ in range(3)
+        ]
+        self.decoder_switch = tf.keras.layers.Dense(3, activation='softmax')
+        self.gate_scale = tf.keras.layers.Dense(hidden_dim, activation='sigmoid')
+        self.pain_hyper = tf.keras.Sequential([
+            tf.keras.layers.Dense(64, activation='relu'),
+            tf.keras.layers.Dense(hidden_dim)
         ])
 
     def call(self, x_seq, y_seq=None, training=False):
@@ -178,10 +181,23 @@ class Sage14FX(tf.keras.Model):
         projected_input = self.projector(self.pos_enc(context))
         attended = self.attn(projected_input)
         chosen_transform = self.chooser(attended, hard=self.use_hard_choice)
-
         last_input_encoded = self.encoder(x_seq[:, -1])
-        merged = tf.concat([chosen_transform, last_input_encoded], axis=-1)
-        output_logits = self.decoder(merged)
+
+        context_features = tf.concat([state, memory_context], axis=-1)
+        channel_gate = self.gate_scale(context_features)
+        channel_gate = tf.reshape(channel_gate, [batch, 1, 1, self.hidden_dim])
+        channel_gate = tf.clip_by_value(channel_gate, 0.0, 1.0)
+
+        blended = channel_gate * chosen_transform + (1 - channel_gate) * last_input_encoded
+
+        decoder_weights = self.decoder_switch(context_features)
+        pain_vector = self.pain_hyper(tf.reshape(self._pain if hasattr(self, '_pain') else tf.zeros([1]), [batch, 1]))
+        blended += tf.reshape(pain_vector, [batch, 1, 1, self.hidden_dim])
+
+        decoder_outputs = [decoder(blended) for decoder in self.decoders]
+        decoder_outputs = tf.stack(decoder_outputs, axis=1)
+        decoder_weights = tf.reshape(decoder_weights, [batch, 3, 1, 1, 1])
+        output_logits = tf.reduce_sum(decoder_outputs * decoder_weights, axis=1)
 
         if y_seq is not None:
             expected = tf.one_hot(y_seq[:, -1], depth=10, dtype=tf.float32)
