@@ -67,23 +67,14 @@ class PositionalEncoding2D(tf.keras.layers.Layer):
         pos = self.dense(pos)
         return tf.concat([x, pos], axis=-1)
 
-class SimpleAttention(tf.keras.layers.Layer):
-    def __init__(self, dim):
+class MultiHeadAttentionWrapper(tf.keras.layers.Layer):
+    def __init__(self, dim, heads=8):
         super().__init__()
-        self.query = tf.keras.layers.Conv2D(dim, 1)
-        self.key = tf.keras.layers.Conv2D(dim, 1)
-        self.value = tf.keras.layers.Conv2D(dim, 1)
-        self.out = tf.keras.layers.Conv2D(dim, 1)
+        self.attn = tf.keras.layers.MultiHeadAttention(num_heads=heads, key_dim=dim // heads)
 
     def call(self, x):
-        q = self.query(x)
-        k = self.key(x)
-        v = self.value(x)
-        attn_logits = tf.reduce_sum(q * k, axis=-1, keepdims=True)
-        attn = tf.nn.softmax(tf.reshape(attn_logits, [tf.shape(x)[0], -1]), axis=-1)
-        attn = tf.reshape(attn, tf.shape(attn_logits))
-        out = v * attn
-        return self.out(out)
+        return self.attn(query=x, value=x, key=x)
+
 
 class Sage14FX(tf.keras.Model):
     def __init__(self, hidden_dim):
@@ -97,7 +88,7 @@ class Sage14FX(tf.keras.Model):
         ])
         self.norm = tf.keras.layers.LayerNormalization()
         self.pos_enc = PositionalEncoding2D(2)  # Now only adds 2D position info
-        self.attn = SimpleAttention(hidden_dim)
+        self.attn = MultiHeadAttentionWrapper(hidden_dim, heads=8)
         self.agent = tf.keras.layers.GRUCell(hidden_dim)
         self.memory = EpisodicMemory()
         self.pain_system = TaskPainSystem(hidden_dim)
