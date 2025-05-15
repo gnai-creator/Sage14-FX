@@ -42,32 +42,34 @@ class PositionalEncoding2D(tf.keras.layers.Layer):
 class FractalEncoder(tf.keras.layers.Layer):
     def __init__(self, dim):
         super().__init__()
-        self.conv3 = tf.keras.layers.Conv2D(dim, 3, padding='same', activation='relu')
-        self.conv5 = tf.keras.layers.Conv2D(dim, 5, padding='same', activation='relu')
-        self.conv7 = tf.keras.layers.Conv2D(dim, 7, padding='same', activation='relu')
-        self.merge = tf.keras.layers.Conv2D(dim, 1, padding='same', activation='relu')
+        self.branch3 = tf.keras.layers.Conv2D(dim // 2, kernel_size=3, padding='same', activation='relu')
+        self.branch5 = tf.keras.layers.Conv2D(dim // 2, kernel_size=5, padding='same', activation='relu')
+        self.merge = tf.keras.layers.Conv2D(dim, kernel_size=1, padding='same', activation='relu')
+        self.residual = tf.keras.layers.Conv2D(dim, kernel_size=1, padding='same')  # For identity path
 
     def call(self, x):
-        c3 = self.conv3(x)
-        c5 = self.conv5(x)
-        c7 = self.conv7(x)
-        return self.merge(c3 + c5 + c7)
+        b3 = self.branch3(x)
+        b5 = self.branch5(x)
+        merged = tf.concat([b3, b5], axis=-1)
+        out = self.merge(merged)
+        skip = self.residual(x)
+        return tf.nn.relu(out + skip)
+
 
 
 class FractalBlock(tf.keras.layers.Layer):
     def __init__(self, dim):
         super().__init__()
-        self.conv1 = tf.keras.layers.Conv2D(dim, kernel_size=1, padding='same', activation='relu')
-        self.conv3 = tf.keras.layers.Conv2D(dim, kernel_size=3, padding='same', activation='relu')
-        self.conv5 = tf.keras.layers.Conv2D(dim, kernel_size=5, padding='same', activation='relu')
-        self.project = tf.keras.layers.Conv2D(dim, kernel_size=1, padding='same')
+        self.conv = tf.keras.layers.Conv2D(dim, kernel_size=3, padding='same', activation='relu')
+        self.bn = tf.keras.layers.BatchNormalization()
+        self.skip = tf.keras.layers.Conv2D(dim, kernel_size=1, padding='same')
 
     def call(self, x):
-        out1 = self.conv1(x)
-        out3 = self.conv3(x)
-        out5 = self.conv5(x)
-        concat = tf.concat([out1, out3, out5], axis=-1)
-        return self.project(concat)
+        out = self.conv(x)
+        out = self.bn(out)
+        skip = self.skip(x)
+        return tf.nn.relu(out + skip)
+
 
 
 class MultiHeadAttentionWrapper(tf.keras.layers.Layer):
