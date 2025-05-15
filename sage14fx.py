@@ -1,4 +1,4 @@
-# === SAGE14-FX v4.5: Alpha Barbarian Mage ===
+# === SAGE14-FX v4.6: Alpha Barbarian Mage — Now Actually Uses Alpha ===
 
 import tensorflow as tf
 
@@ -200,6 +200,7 @@ class Sage14FX(tf.keras.Model):
             self._gate = gate
             self._exploration = exploration
             self._alpha = alpha
-            self._loss_pain = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)(y_seq[:, -1], output_logits)
+            loss = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)(y_seq[:, -1], output_logits)
+            self._loss_pain = loss * alpha  # Apply alpha modulation here
 
         return output_logits
